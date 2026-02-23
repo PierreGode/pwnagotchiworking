@@ -33,6 +33,12 @@ block content %}
         <input type="hidden" name="mode" value="{{ other_mode }}" />
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       </form>
+      <form
+        method="post"
+        action="/swap/ragnar"
+        onsubmit="return confirm('This will start Ragnar and stop Pwnagotchi. Continue?');">
+        <button type="submit" class="btn secondary">Switch to Ragnar</button>
+      </form>
     </div>
   </div>
 </div>

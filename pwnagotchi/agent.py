@@ -316,7 +316,8 @@ class Agent(Client, Automata, AsyncAdvertiser):
                 logging.error("[agent:_fetch_stats] self.update_uptimes: %s" % repr(err))
 
             try:
-                self._update_advertisement(s)
+                if self._config.get('personality', {}).get('advertise', True):
+                    self._update_advertisement(s)
             except Exception as err:
                 logging.error("[agent:_fetch_stats] self.update_advertisements: %s" % repr(err))
 

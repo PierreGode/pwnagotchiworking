@@ -79,6 +79,7 @@ class Handler:
         self._app.add_url_rule('/plugins/<name>', 'plugins', plugins_with_auth, strict_slashes=False,
                                methods=['GET', 'POST'], defaults={'subpath': None})
         self._app.add_url_rule('/plugins/<name>/<path:subpath>', 'plugins', plugins_with_auth, methods=['GET', 'POST'])
+        self._app.add_url_rule('/swap/ragnar', 'swap_ragnar', self.with_auth(self.swap_ragnar), methods=['POST'])
 
     def _check_creds(self, u, p):
         # trying to be timing attack safe
@@ -302,6 +303,28 @@ class Handler:
             ).start()
 
     # serve dynamic CSS with accent color from config
+
+    def _swap_to_ragnar(self):
+        import subprocess
+        cmds = [
+            ['systemctl', '--no-block', 'start', 'ragnar.service'],
+            ['systemctl', '--no-block', 'stop', 'pwnagotchi.service'],
+        ]
+        for cmd in cmds:
+            try:
+                logging.info('swap-to-ragnar executing: %s', ' '.join(cmd))
+                subprocess.Popen(cmd)
+            except Exception as exc:
+                logging.error('swap to Ragnar failed: %s', exc)
+
+    def swap_ragnar(self):
+        try:
+            import _thread
+            _thread.start_new_thread(self._swap_to_ragnar, ())
+            return jsonify({'status': 'switching', 'message': 'Switching to Ragnar... hold tight!'})
+        except Exception as exc:
+            logging.exception('unexpected error while swapping to Ragnar')
+            return jsonify({'status': 'error', 'message': str(exc)}), 500
     def dynamic_theme(self):
         """Generate CSS accent RGB variables from config [ui.web.theme] section"""
         # Get RGB values from already-loaded config, fallback to default green

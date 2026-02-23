@@ -1,3 +1,4 @@
+import pillow_compat
 import logging
 import argparse
 import time
