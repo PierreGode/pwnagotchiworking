@@ -37,6 +37,7 @@ block content %}
         method="post"
         action="/swap/ragnar"
         onsubmit="return confirm('This will start Ragnar and stop Pwnagotchi. Continue?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <button type="submit" class="btn secondary">Switch to Ragnar</button>
       </form>
     </div>
