@@ -305,17 +305,22 @@ class Handler:
     # serve dynamic CSS with accent color from config
 
     def _swap_to_ragnar(self):
-        import subprocess
+        import subprocess, time
         cmds = [
-            ['systemctl', '--no-block', 'start', 'ragnar.service'],
-            ['systemctl', '--no-block', 'stop', 'pwnagotchi.service'],
+            ['systemctl', 'stop', 'pwnagotchi.service'],
+            ['systemctl', 'stop', 'bettercap.service'],
         ]
         for cmd in cmds:
             try:
                 logging.info('swap-to-ragnar executing: %s', ' '.join(cmd))
-                subprocess.Popen(cmd)
+                subprocess.run(cmd, timeout=10)
             except Exception as exc:
                 logging.error('swap to Ragnar failed: %s', exc)
+        try:
+            time.sleep(2)
+            subprocess.Popen(['systemctl', '--no-block', 'start', 'ragnar.service'])
+        except Exception as exc:
+            logging.error('swap to Ragnar: failed to start ragnar: %s', exc)
 
     def swap_ragnar(self):
         try:
