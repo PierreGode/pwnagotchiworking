@@ -284,6 +284,8 @@ class Agent(Client, Automata, AsyncAdvertiser):
             json.dump(data, fp)
 
     def _load_recovery_data(self, delete=True, no_exceptions=True):
+        if not os.path.exists(RECOVERY_DATA_FILE):
+            return
         try:
             with open(RECOVERY_DATA_FILE, 'rt') as fp:
                 data = json.load(fp)
@@ -297,8 +299,8 @@ class Agent(Client, Automata, AsyncAdvertiser):
                 if delete:
                     logging.info("deleting %s", RECOVERY_DATA_FILE)
                     os.unlink(RECOVERY_DATA_FILE)
-        except Exception:  # FIX B4: was bare except, now catches Exception only
-                raise
+        except Exception:
+            raise
 
     def start_session_fetcher(self):
         threading.Thread(target=self._fetch_stats, args=(), name="Session Fetcher", daemon=True).start()
