@@ -305,27 +305,31 @@ class Handler:
     # serve dynamic CSS with accent color from config
 
     def _swap_to_ragnar(self):
-        import subprocess, time
-        cmds = [
-            ['systemctl', 'stop', 'pwnagotchi.service'],
-            ['systemctl', 'stop', 'bettercap.service'],
-        ]
-        for cmd in cmds:
-            try:
-                logging.info('swap-to-ragnar executing: %s', ' '.join(cmd))
-                subprocess.run(cmd, timeout=10)
-            except Exception as exc:
-                logging.error('swap to Ragnar failed: %s', exc)
+        import subprocess
+        # Use systemd-run to execute the swap in a transient cgroup.
+        # Without this, systemctl stop pwnagotchi kills the entire cgroup
+        # (including this thread), so stop-bettercap and start-ragnar
+        # would never execute.
         try:
-            time.sleep(2)
-            subprocess.Popen(['systemctl', '--no-block', 'start', 'ragnar.service'])
+            subprocess.Popen(
+                ['systemd-run', '--no-block', '--collect',
+                 '--unit=pwnagotchi-to-ragnar-swap',
+                 'bash', '-c',
+                 'sleep 1 && systemctl stop pwnagotchi.service'
+                 ' && systemctl stop bettercap.service'
+                 ' && sleep 2'
+                 ' && systemctl start ragnar.service'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            logging.info("Scheduled systemd-run swap: stop pwnagotchi → start ragnar")
         except Exception as exc:
-            logging.error('swap to Ragnar: failed to start ragnar: %s', exc)
+            logging.error('swap to Ragnar: systemd-run failed: %s', exc)
 
     def swap_ragnar(self):
         try:
-            import _thread
-            _thread.start_new_thread(self._swap_to_ragnar, ())
+            # FIX B5: replaced _thread.start_new_thread with threading.Thread
+            threading.Thread(target=self._swap_to_ragnar, daemon=True).start()
             return jsonify({'status': 'switching', 'message': 'Switching to Ragnar... hold tight!'})
         except Exception as exc:
             logging.exception('unexpected error while swapping to Ragnar')
