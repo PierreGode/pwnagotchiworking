@@ -4,6 +4,7 @@ import os
 import re
 import logging
 import asyncio
+#import _thread
 import threading
 import subprocess
 
@@ -303,6 +304,7 @@ class Agent(Client, Automata, AsyncAdvertiser):
             raise
 
     def start_session_fetcher(self):
+        #_thread.start_new_thread(self._fetch_stats, ())
         threading.Thread(target=self._fetch_stats, args=(), name="Session Fetcher", daemon=True).start()
 
     def _fetch_stats(self):
@@ -387,6 +389,7 @@ class Agent(Client, Automata, AsyncAdvertiser):
 
     def start_event_polling(self):
         # start a thread and pass in the mainloop
+        #_thread.start_new_thread(self._event_poller, (asyncio.get_event_loop(),))
         threading.Thread(target=self._event_poller, args=(asyncio.get_event_loop(),), name="Event Polling", daemon=True).start()
 
     def is_module_running(self, module):
