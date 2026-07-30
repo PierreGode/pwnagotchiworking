@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import base64
 import threading  # FIX B5: replaced _thread with threading
 import secrets
@@ -217,9 +218,7 @@ class Handler:
         if name is None:
             # Determine which plugins are from the default folder
             default_plugins = set()
-            default_path = os.path.join(
-                os.path.dirname(os.path.realpath(plugins.__file__)), "default"
-            )
+            default_path = os.path.join(os.path.dirname(os.path.realpath(plugins.__file__)), "default")
             for plugin_name, plugin_path in plugins.database.items():
                 if plugin_path.startswith(default_path):
                     default_plugins.add(plugin_name)
@@ -239,10 +238,10 @@ class Handler:
             )
 
         if name == "upgrade" and request.method == "POST":
-            logging.info(f"Upgrading plugin: {request.form['plugin']}")
-            os.system(
-                f"pwnagotchi plugins update && pwnagotchi plugins upgrade {request.form['plugin']}"
-            )
+            plugin_name = request.form["plugin"]
+            logging.info(f"Upgrading plugin: {plugin_name}")
+            subprocess.run(["pwnagotchi", "plugins", "update"], check=False)
+            subprocess.run(["pwnagotchi", "plugins", "upgrade", plugin_name], check=False)
             return redirect("/plugins")
 
         if (
