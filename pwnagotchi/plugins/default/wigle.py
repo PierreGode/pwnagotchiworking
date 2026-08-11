@@ -20,7 +20,7 @@ from pwnagotchi.utils import (
     remove_whitelisted,
 )
 from pwnagotchi import plugins
-from pwnagotchi.plugins.default.cache import read_ap_cache
+from pwnagotchi.cache import read_ap_cache
 from pwnagotchi._version import __version__ as __pwnagotchi_version__
 
 import pwnagotchi.ui.fonts as fonts
@@ -112,7 +112,7 @@ class Wigle(plugins.Plugin):
 
     @staticmethod
     def get_pcap_filename(gps_file):
-        pcap_filename = re.sub(r"\.(geo|gps)\.json$", ".pcap", gps_file)
+        pcap_filename = re.sub(r"\.(geo|gps)\.json$", ".pcapng", gps_file)
         if not os.path.exists(pcap_filename):
             logging.debug("[WIGLE] Can't find pcap for %s", gps_file)
             return None
@@ -154,7 +154,7 @@ class Wigle(plugins.Plugin):
 
     def get_pcap_data(self, pcap_filename):
         try:
-            if cache := read_ap_cache(self.cache_dir, self.pcap_filename):
+            if cache := read_ap_cache(self.cache_dir, pcap_filename):
                 logging.info(f"[WIGLE] Using cache for {pcap_filename}")
                 return {
                     WifiInfo.BSSID: cache["mac"],

@@ -88,6 +88,8 @@ class Agent(Client, Automata, AsyncAdvertiser):
         self.run('set wifi.rssi.min %d' % self._config['personality']['min_rssi'])
         self.run('set wifi.handshakes.file %s' % self._config['bettercap']['handshakes'])
         self.run('set wifi.handshakes.aggregate false')
+        skip_broken = not self._config['personality'].get('capture_broken_frames', True)
+        self.run('set wifi.skip-broken %s' % ('true' if skip_broken else 'false'))
 
     def start_monitor_mode(self):
         mon_iface = self._config['main']['iface']
@@ -147,6 +149,20 @@ class Agent(Client, Automata, AsyncAdvertiser):
         # print initial stats
         self.next_epoch()
         self.set_ready()
+
+    def get_current_channel(self):
+        """Return bettercap's live WiFi hop channel (updated ~every wifi.hop.period
+        as it scans), or None on error. Used to reflect the actual scan channel on
+        the display during the passive recon wait, separate from set_channel()
+        which only fires later, per known-AP, during the targeted interaction
+        loop in cli.py."""
+        try:
+            for module in self.session('session/modules'):
+                if module.get('name') == 'wifi':
+                    return module.get('state', {}).get('channel')
+        except Exception as e:
+            logging.debug("error while getting current wifi channel: %s", e)
+        return None
 
     def recon(self):
         recon_time = self._config['personality']['recon_time']

@@ -4,6 +4,9 @@
 hostname: pwnagotchi
 manage_etc_hosts: true
 
+runcmd:
+  - nmcli dev set usb0 managed yes
+
 keyboard:
     layout: us
 
