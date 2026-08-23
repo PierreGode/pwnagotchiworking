@@ -17,7 +17,7 @@ class NetworkManager:
     # DHCP tuning
     DHCP_RELEASE_WAIT = 1
     DHCP_KILL_WAIT = 0.5
-    DHCPCD_FAST_CONF = "/tmp/bt-tether-dhcpcd.conf"
+    DHCP_TIMEOUT = 15
     DHCLIENT_FAST_CONF = "/tmp/bt-tether-dhclient.conf"
 
     def __init__(self, logger=None, options=None):
@@ -199,50 +199,67 @@ class NetworkManager:
 
             if has_dhcpcd:
                 self.logger.info("Using dhcpcd...")
-                # Release any existing lease first
-                subprocess.run(
-                    ["sudo", "dhcpcd", "-k", iface],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                )
+                # Stop any dhcpcd already on this interface so we start clean
+                try:
+                    subprocess.run(
+                        ["sudo", "dhcpcd", "-k", iface],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                except subprocess.TimeoutExpired:
+                    pass
                 time.sleep(self.DHCP_RELEASE_WAIT)
-                # dhcpcd ARP-probes the address for ~5-6s (duplicate-address
-                # detection). That's pointless on a point-to-point Bluetooth PAN
-                # link, so disable it via a minimal config - it's the single
-                # biggest chunk of connect time. Skipped when fast_dhcp is off.
-                cf_args = []
-                if self.fast_dhcp:
-                    try:
-                        with open(self.DHCPCD_FAST_CONF, "w") as cf:
-                            cf.write("noarp\n")
-                        cf_args = ["-f", self.DHCPCD_FAST_CONF]
-                    except Exception as e:
-                        self.logger.debug(f"dhcpcd cf write failed: {e}")
-                # Request new lease
-                result = subprocess.run(
-                    ["sudo", "dhcpcd", "-4"] + cf_args + ["-n", iface],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    timeout=20,
-                )
-                # If our noarp config made dhcpcd unhappy (unusual version), retry
-                # once with a plain invocation so we still get a lease anywhere.
-                if result.returncode != 0 and cf_args:
-                    self.logger.info("dhcpcd config rejected - retrying without noarp tuning")
-                    result = subprocess.run(
-                        ["sudo", "dhcpcd", "-4", "-n", iface],
+
+                # -b: background immediately rather than blocking until a lease.
+                #     dhcpcd keeps the lease renewed as a daemon and we poll for
+                #     the address separately (wait_for_interface_ip), so this call
+                #     cannot hang the connect thread.
+                # -A (--noarp): skip the ~5-6s duplicate-address ARP probe, which
+                #     is pointless on a point-to-point PAN link.
+                # NB: do NOT use `-f <config>` + `-n` - that replaces dhcpcd's whole
+                #     config and hangs against a running privsep dhcpcd (9/10), which
+                #     is what caused the 20s "DHCP setup error" timeouts.
+                fast_args = ["-A"] if self.fast_dhcp else []
+
+                def _run_dhcpcd(extra):
+                    return subprocess.run(
+                        ["sudo", "dhcpcd", "-4", "-b"] + extra + [iface],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
-                        timeout=20,
+                        timeout=self.DHCP_TIMEOUT,
                     )
+
+                result = None
+                try:
+                    result = _run_dhcpcd(fast_args)
+                except subprocess.TimeoutExpired:
+                    self.logger.warning("dhcpcd timed out - clearing and retrying plain")
+                    try:
+                        subprocess.run(
+                            ["sudo", "dhcpcd", "-k", iface],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=5,
+                        )
+                    except Exception:
+                        pass
+
+                # Fall back to a plain run on a timeout, or if the fast flag was rejected
+                if result is None or (result.returncode != 0 and fast_args):
+                    if result is not None:
+                        self.logger.info("dhcpcd rejected fast options - retrying plain")
+                    try:
+                        result = _run_dhcpcd([])
+                    except subprocess.TimeoutExpired:
+                        self.logger.error("dhcpcd timed out on plain retry")
+                        return False
+
                 if result.stdout.strip():
                     self.logger.info(f"dhcpcd: {result.stdout.strip()}")
-                if result.returncode == 0:
-                    dhcp_success = True
-                else:
+                dhcp_success = result.returncode == 0
+                if not dhcp_success:
                     self.logger.warning(f"dhcpcd failed: {result.stderr.strip()}")
 
             elif has_dhclient:
@@ -547,6 +564,78 @@ class NetworkManager:
         except Exception as e:
             self.logger.error(f"Failed to get PAN interface: {e}")
             return None
+
+    def get_pan_peer_ip(self, iface):
+        """Best-effort phone IP on the PAN link, for reachability probing.
+
+        Tries: default route via the iface -> existing neighbour -> our subnet .1.
+        """
+        try:
+            out = subprocess.run(
+                ["ip", "route", "show", "default", "dev", iface],
+                capture_output=True, text=True, timeout=self.SUBPROCESS_TIMEOUT_NORMAL,
+            ).stdout
+            m = re.search(r"default via (\d+\.\d+\.\d+\.\d+)", out)
+            if m:
+                return m.group(1)
+
+            out = subprocess.run(
+                ["ip", "neigh", "show", "dev", iface],
+                capture_output=True, text=True, timeout=self.SUBPROCESS_TIMEOUT_NORMAL,
+            ).stdout
+            m = re.search(r"^(\d+\.\d+\.\d+\.\d+)", out.strip())
+            if m:
+                return m.group(1)
+
+            out = subprocess.run(
+                ["ip", "-4", "addr", "show", "dev", iface],
+                capture_output=True, text=True, timeout=self.SUBPROCESS_TIMEOUT_NORMAL,
+            ).stdout
+            m = re.search(r"inet (\d+\.\d+\.\d+)\.\d+", out)
+            if m:
+                return m.group(1) + ".1"
+        except Exception as e:
+            self.logger.debug(f"Peer IP probe failed: {e}")
+        return None
+
+    def pan_peer_reachable(self):
+        """Probe whether the phone is actually reachable over the PAN link.
+
+        Returns True (reachable), False (half-open / unreachable), or None (unknown
+        - no interface or no peer to probe, so the caller should not act).
+        """
+        iface = self.get_pan_interface()
+        if not iface:
+            return None
+        peer = self.get_pan_peer_ip(iface)
+        if not peer:
+            return None
+        try:
+            r = subprocess.run(
+                ["ping", "-c", "1", "-W", "2", "-I", iface, peer],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=self.SUBPROCESS_TIMEOUT_STANDARD,
+            )
+            if r.returncode == 0:
+                return True
+        except Exception:
+            pass
+        # Ping failed (or was filtered) - confirm via the neighbour state, but only
+        # trust an ACTIVELY-confirmed entry (REACHABLE/DELAY/PROBE) as "ping merely
+        # blocked." Deliberately exclude STALE: the kernel keeps the last-known MAC
+        # in STALE for minutes after a link goes dead, so treating STALE as reachable
+        # produces false-"healthy" reads on a half-open link (and masks it from the
+        # watchdog). No active entry -> treat as unreachable.
+        try:
+            out = subprocess.run(
+                ["ip", "neigh", "show", "to", peer, "dev", iface],
+                capture_output=True, text=True, timeout=self.SUBPROCESS_TIMEOUT_NORMAL,
+            ).stdout
+            if any(s in out for s in ("REACHABLE", "DELAY", "PROBE")):
+                return True
+        except Exception:
+            pass
+        return False
 
     def get_interface_ip(self, iface):
         """Get IP address of a network interface"""
