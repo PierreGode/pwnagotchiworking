@@ -1580,3 +1580,41 @@ textarea:focus-visible,
     text-decoration: underline;
   }
 }
+
+/* Small landscape displays (e.g. 480x320 SPI TFT panels).
+   The default layout is tuned for tall phone screens, so on a short, wide
+   panel the device face renders tiny while the control buttons dominate the
+   screen. When both width and height are small, keep the face front-and-centre
+   and collapse the controls into a compact row. Gated on max-height so it only
+   affects short landscape panels, never phones (tall) or desktop. */
+@media (max-width: 640px) and (max-height: 420px) {
+  .ui-image {
+    width: auto;
+    max-width: 100vw;
+    max-height: 74vh;
+    margin: 0 auto 4px;
+    object-fit: contain;
+  }
+
+  .control-buttons {
+    gap: 4px;
+    justify-content: center;
+  }
+
+  .control-buttons form {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .control-buttons button {
+    flex: 0 0 auto;
+    min-width: 0;
+    font-size: 0.7rem;
+    padding: 3px 8px;
+    white-space: nowrap;
+  }
+
+  .page-footer {
+    display: none;
+  }
+}
