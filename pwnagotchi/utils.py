@@ -519,8 +519,14 @@ def secs_to_hhmmss(secs):
 
 
 def total_unique_handshakes(path):
-    expr = os.path.join(path, "*.pcapng")
-    return len(glob.glob(expr))
+    # bettercap writes captures as .pcap; older setups and some tools use .pcapng.
+    # Match both so the PWND total reflects real captures, and de-duplicate by
+    # capture name so a network saved in both formats is only counted once.
+    handshakes = set()
+    for ext in ("*.pcap", "*.pcapng"):
+        for capture in glob.glob(os.path.join(path, ext)):
+            handshakes.add(os.path.splitext(os.path.basename(capture))[0])
+    return len(handshakes)
 
 
 def iface_channels(ifname):
