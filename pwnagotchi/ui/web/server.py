@@ -14,6 +14,39 @@ from flask_wtf.csrf import CSRFProtect
 
 from pwnagotchi.ui.web.handler import Handler
 
+# Path where the Flask secret key is persisted across web-server restarts.
+_SECRET_KEY_PATH = '/etc/pwnagotchi/.flask_secret'
+
+
+def _persistent_secret_key():
+    """Return a Flask secret key that is stable across web-server restarts.
+
+    Generating a fresh random key on every start invalidates all existing
+    sessions, so the CSRF token baked into any already-open page (browser tab
+    or a kiosk display) no longer validates after a restart or a mode swap,
+    producing "Bad Request: The CSRF session token is missing". Persisting the
+    key removes that whole class of intermittent failure. Falls back to an
+    ephemeral key only if the file can neither be read nor written.
+    """
+    try:
+        with open(_SECRET_KEY_PATH, 'r') as fp:
+            key = fp.read().strip()
+        if key:
+            return key
+    except OSError:
+        pass
+
+    key = secrets.token_urlsafe(256)
+    try:
+        os.makedirs(os.path.dirname(_SECRET_KEY_PATH), exist_ok=True)
+        with open(_SECRET_KEY_PATH, 'w') as fp:
+            fp.write(key)
+        os.chmod(_SECRET_KEY_PATH, 0o600)
+    except OSError:
+        logging.warning("Could not persist Flask secret key; sessions will reset on restart")
+    return key
+
+
 class Server:
     def __init__(self, agent, config):
         self._config = config['web']
@@ -39,7 +72,7 @@ class Server:
                         static_folder=os.path.join(web_path, 'static'),
                         template_folder=os.path.join(web_path, 'templates'))
 
-            app.secret_key = secrets.token_urlsafe(256)
+            app.secret_key = _persistent_secret_key()
 
             if self._origin:
                 CORS(app, resources={r"*": {"origins": self._origin}})
